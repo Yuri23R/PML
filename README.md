@@ -1,2 +1,2 @@
-# PML
-Repo for Coursera PML course project
+# Coursera - Practical ML
+Repo for Prediction Assignment Writeup
