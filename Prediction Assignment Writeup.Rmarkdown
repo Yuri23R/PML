@@ -1,0 +1,157 @@
+---
+title: "Coursera - Practical ML. Prediction Assignment Writeup"
+author: "IuriiR23"
+date: "6/1/2019"
+output: html_document
+---
+
+# 1. Uploading, reading & cleaning the data
+
+```{r,  results="hide"}
+library(foreign)
+training <- read.csv2("D:/R/pml-training.csv", sep = ",")
+testing <- read.csv2("D:/R/pml-testing.csv", sep = ",")
+```
+
+```{r}
+table(training$classe)
+```
+
+### Checking a type of the data
+```{r, eval=FALSE}
+lapply(training0, class)
+```
+
+### Factros to numeric data, missings to NAs
+```{r, results="hide", warning = F}
+factorsNumeric <- function(training) modifyList(training, lapply(training[, sapply(training, is.factor)],asNumeric))
+asNumeric <- function(x) as.numeric(as.character(x))
+training0 <- factorsNumeric(training)
+```
+
+### Removing variables that are mostly NAs
+```{r}
+AllNA <- sapply(training0, function(x) mean(is.na(x))) > 0.95
+training00 <- training0[, AllNA==FALSE]
+dim(training00)
+```
+
+### Excluding other non-relevant variables
+```{r}
+training000 <- training00[,-c(1:4)]
+dim(training000)
+```
+
+### Adding outcome variable
+```{r}
+training1 <- data.frame(training000, training$classe)
+training1$classe <- training1$training.classe
+training1 <- training1[,-c(53)]
+dim(training1)
+```
+
+# 2. Splitting dataset
+The initial training dataset is splitted into a training set (85% of the data) and a validation set (with the remaining 15%). This ratio of partitioning is selected because the initial training dataset is extremely large comparing to the testing set, so the size of a validation set might be less.
+```{r, results="hide"}
+library(caret)
+set.seed(1011)
+inTrain <- createDataPartition(training1$classe, p = 0.85, list = F)
+trset <- training1[inTrain,]
+teset <- training1[-inTrain,]
+```
+
+# 3. Exploratory analysis and feature selection with PCA
+
+Performing PCA to explore the opportunity for reduction of dimensionality and feature selection.
+```{r, results="hide"}
+library(factoextra)
+```
+
+```{r}
+set.seed(10122)
+pc <- prcomp(trset[,-c(53)], scale.=T)
+fviz_screeplot(pc, ncp=26)
+```
+
+26 components expain 95% of variance. PCA significantly reduced dimentionality of data. 
+Plot cumulative variables' contribution to top 26 components.
+```{r}
+fviz_contrib(pc, choice = "var", axes = 1:26)
+```
+
+Get variables contributions to top 26 components as data.frame. Components as observations
+```{r}
+# Get variables contributions to top 26 components as data.frame. Components as observations
+res.var <- get_pca_var(pc)
+con <- as.data.frame(t(res.var$contrib[,c(1:26)]))
+
+# Get explained variance for top 26 components.
+var <- (((pc$sdev)^2)/sum((pc$sdev)^2))[1:26]
+
+## Weighting contributions of variables by importance of components
+conX <- con*var
+conX <- rbind(conX, colSums(conX))
+## Selecting the total contribution 'observation'
+conT <- conX[c(27),]
+rownames(conT) <- c("Total")
+conT2 <- as.data.frame(t(conT))
+conF <- subset(conT2, Total > (mean(conT2$Total)))
+dim(conF)
+
+## The list of 30 variables which contributed most into top 26 components.
+list <- names(as.data.frame(t(conF)))
+
+## Final training data set
+trainF <- trset[list]
+trainF$classe <- trset$classe
+dim(trainF)
+```
+
+# 4. Prediction modeling
+## 4.1. KNN model
+```{r}
+set.seed(102)
+modknn <- train(classe ~., method="knn", data = trainF)
+predknn <- predict(modknn, newdata=teset)
+confusionMatrix(predknn, teset$classe)
+
+set.seed(103)
+modknn1 <- train(classe ~., method="knn", data = trainF, trControl=trainControl(method="cv",number=20))
+predknn1 <- predict(modknn1,newdata=teset)
+confusionMatrix(predknn1, teset$classe)
+```
+Resampling does not add predictive power and reduce out of sample error for KNN model.
+The accuracy of the best KNN model is **0.8946**.  
+
+## 4.2. Decision Trees
+```{r}
+modt <- train(classe ~., method="rpart", data = trainF)
+predt <- predict(modt,newdata=teset)
+confusionMatrix(predt, teset$classe)
+```
+The accuracy of the decision tree model is **0.4385** (very low).  
+
+## 4.3. Random Forest
+```{r}
+modrf <- train(classe ~., method="rf", data = trainF)
+predrf <- predict(modrf,newdata=teset)
+confusionMatrix(predrf, teset$classe)
+```
+
+The accuracy of the random forest model is **0.9963**. 
+Out of sample error is `r (1 - 0.9963)*100`%
+Random forest performed the highest prediction power among fitted models, hence should be selected to apply for the testing set.
+
+# 5. Prediction on the testing set
+### Preparing testing set (factros to numeric data)
+```{r}
+factorsNumeric <- function(testing) modifyList(testing, lapply(testing[, sapply(testing, is.factor)],asNumeric))
+asNumeric <- function(x) as.numeric(as.character(x))
+testingF <- factorsNumeric(testing)
+```
+
+### Prediction
+```{r, warning = F}
+pred <- predict(modrf,testingF)
+pred
+```
